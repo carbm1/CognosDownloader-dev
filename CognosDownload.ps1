@@ -56,8 +56,7 @@ $userdomain = "APSCN"
 # 2018-04-26: (reverted) scottorgan: Nested folder support Usage examples: CognosDownload.ps1 Clever\Entollments ; CognosDownload.ps1 "Other Reports\MAP Roster"
 # 2018-04-26: (reverted) BPSDJreed: Email notification for expired password
 # 2018-04-24: Craig Millsap: Added recursive nested folders, email notifications, waiting for report to generate.
-# 2020-11-19: Craig Millsap: Major overhaul for Cognos11 upgrade.
-
+# 2020-11-19: Craig Millsap: Major overhaul for Cognos11 upgrade. Working eSchool Plus. eFinance is not working yet.
 
 #send mail on failure.
 $mailsubject = "[CognosDownloader]"
