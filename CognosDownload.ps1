@@ -20,7 +20,8 @@ Param(
     [parameter(Mandatory=$false,HelpMessage="SMTP eMail From")][string]$mailfrom="noreply@yourdomain.com", #--- VARIABLE --- change for your email from address
     [parameter(Mandatory=$false,HelpMessage="File for SMTP eMail Password")][string]$smtppasswordfile="C:\Scripts\emailpw.txt", #--- VARIABLE --- change to a file path for email server password
     [parameter(Mandatory=$false,HelpMessage="Send eMail to")][string]$mailto="technology@yourdomain.com", #--- VARIABLE --- change for your email to address
-    [parameter(Mandatory=$false,HelpMessage="Minimum line count required for CSVs")][int]$requiredlinecount=3 #This should be the ABSOLUTE minimum you expect to see. Think schools.csv for smaller districts.
+    [parameter(Mandatory=$false,HelpMessage="Minimum line count required for CSVs")][int]$requiredlinecount=3, #This should be the ABSOLUTE minimum you expect to see. Think schools.csv for smaller districts.
+    [parameter(Mandatory=$false)][switch]$showURL #print the url used to download report.
 )
 
 Add-Type -AssemblyName System.Web
@@ -200,6 +201,9 @@ if ($uiAction -notmatch "run" -and $uiAction -notmatch "view") {
     exit 2 #option not implemented
 }
 
+if ($showURL) {
+    Write-Host "Verbose: Request sent to:", $([System.Web.HttpUtility]::UrlDecode("$url"))
+}
 #Write-Host $url
 #Write-Host $([System.Web.HttpUtility]::UrlDecode($url))
 
