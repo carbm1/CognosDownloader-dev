@@ -363,7 +363,7 @@ if (-Not($SkipDownloadingFile)) {
 
         } catch {}
 
-        Write-Host -NoNewline "Downloading Report to ""$($fullfilepath)""... " -ForegroundColor Yellow
+        Write-Host "Downloading Report to ""$($fullfilepath)""... " -ForegroundColor Yellow
         $response5 = Invoke-RestMethod -Uri $downloadURL -WebSession $session
 
         if ($response5.receipt.status -eq "working") {
@@ -428,7 +428,7 @@ if (-Not($SkipDownloadingFile)) {
 
             } elseif ($response6.receipt) { #task is still in a working status
                 
-                write-host "Info: Report is still working."
+                Write-Host "Info: Report is still working."
                 do {
                     $response7 = Invoke-RestMethod -Uri "$($baseURL)/ibmcognos/bi/v1/disp/rds/sessionOutput/conversationID/$($response5.receipt.conversationID)?v=3&async=MANUAL" -WebSession $session
 
@@ -446,7 +446,7 @@ if (-Not($SkipDownloadingFile)) {
             }
         }
         
-        Write-Host "Success." -ForegroundColor Yellow
+        Write-Host "Success." -ForegroundColor Yellow -NoNewline
     } catch {
         $b = $_
         Write-Host "Failed to download file. $($_)" -ForegroundColor Red
