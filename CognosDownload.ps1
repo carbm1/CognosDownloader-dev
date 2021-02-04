@@ -112,12 +112,18 @@ Add-Type -AssemblyName System.Web
 # 2018-04-24: Craig Millsap: Added recursive nested folders, email notifications, waiting for report to generate.
 # 2020-11-19: Craig Millsap: Major overhaul for Cognos11 upgrade. Working eSchool Plus. eFinance is not working yet.
 # 2020-12-01: Craig Millsap: Migrated over to using Invoke-RestMethod and better validation. Huge thanks to Jon Penn for the API documentation.
+# 2020-02-04: Craig Millsap: Completed saving parameters, looping until report is ready, validate error messages.
 
 #Example for the Team Content folder:
 #https://dev.adecognos.arkansas.gov/ibmcognos/bi/v1/disp/rds/wsil/path/Team%20Content%2FStudent%20Management%20System%2F_Share%20Temporarily%20Between%20Districts%2FGentry%2Fautomation
 #/content/folder[@name='Student Management System']/folder[@name='_Share Temporarily Between Districts']/folder[@name='Gentry']/folder[@name='automation']/query[@name='activities']
 #https://dev.adecognos.arkansas.gov/ibmcognos/bi/v1/disp/rds/atom/path/Team Content/Student Management System/_Share Temporarily Between Districts/Gentry/automation/activities
 #CAMID("esp:a:0401cmillsap")/folder[@name='My Folders']/folder[@name='automation']/query[@name='activities']
+
+$currentPath=(Split-Path ((Get-Variable MyInvocation -Scope 0).Value).MyCommand.Path)
+if (Test-Path $currentPath\CognosDefaults.ps1) {
+    . $currentPath\CognosDefaults.ps1
+}
 
 #send mail on failure.
 $mailsubject = "[CognosDownloader]"
@@ -448,7 +454,6 @@ if (-Not($SkipDownloadingFile)) {
         
         Write-Host "Success." -ForegroundColor Yellow -NoNewline
     } catch {
-        $b = $_
         Write-Host "Failed to download file. $($_)" -ForegroundColor Red
         exit(6)
     }
