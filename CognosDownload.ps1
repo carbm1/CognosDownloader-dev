@@ -323,31 +323,112 @@ if (-Not($SkipDownloadingFile)) {
             }
         }
 
-        Write-Host -NoNewline "Downloading Report to ""$($fullfilepath)""... " -ForegroundColor Yellow
-
-        $downloadURL = "$($baseURL)/ibmcognos/bi/v1/disp/rds/outputFormat/path/$($cognosfolder)/$($report)/$($validExtension)?v=3"
+        $downloadURL = "$($baseURL)/ibmcognos/bi/v1/disp/rds/outputFormat/path/$($cognosfolder)/$($report)/$($validExtension)?v=3&async=MANUAL&useRelativeURL=true"
         
         #https://www.ibm.com/support/knowledgecenter/SSEP7J_11.1.0/com.ibm.swg.ba.cognos.ca_dg_cms.doc/c_dg_raas_run_rep_prmpt.html#dg_raas_run_rep_prmpt
         #I think this should be a path as well to the xmlData so you can save it to a text file and pull in when needed to run.
         #Maybe if the prompts return a Test-Path $True then import and use the xmlData field instead. This should allow for more complex prompts.
 
-        if ($reportparams -ne "") {
+        if ($reportparams -ne '') {
             $downloadURL = $downloadURL + '&' + $reportparams
         }
 
-        if (Test-Path "$XMLParameters") {
-            $reportParamXML = (Get-Content "$XMLParameters") -replace ' xmlns:rds="http://www.ibm.com/xmlns/prod/cognos/rds/types/201310"','' -replace 'rds:','' -replace '<','%3C' -replace '>','%3E' -replace '/','%2F'
-            $downloadURL = $downloadURL + '&xmlData=' + $reportParamXML
-        } elseif (Test-Path "$($reportID).xml") {
-            $reportParamXML = (Get-Content "$($reportID).xml") -replace ' xmlns:rds="http://www.ibm.com/xmlns/prod/cognos/rds/types/201310"','' -replace 'rds:','' -replace '<','%3C' -replace '>','%3E' -replace '/','%2F'
-            $downloadURL = $downloadURL + '&xmlData=' + $reportParamXML
+        try {
+            if ($XMLParameters -ne '') {
+                if (Test-Path "$XMLParameters") {
+                    Write-Host "Info: Using """$XMLParameters""" in current directory for report prompts." -ForegroundColor Yellow
+                    $reportParamXML = (Get-Content "$XMLParameters") -replace ' xmlns:rds="http://www.ibm.com/xmlns/prod/cognos/rds/types/201310"','' -replace 'rds:','' -replace '<','%3C' -replace '>','%3E' -replace '/','%2F'
+                    $promptXML = [xml]((Get-Content "$XMLParameters") -replace ' xmlns:rds="http://www.ibm.com/xmlns/prod/cognos/rds/types/201310"','' -replace 'rds:','')
+                    $downloadURL = $downloadURL + '&xmlData=' + $reportParamXML
+                }
+            } elseif (Test-Path "$($reportID).xml") {
+                Write-Host "Info: Found ""$($reportID).xml"" in current directory. Using saved report prompts." -ForegroundColor Yellow
+                $reportParamXML = (Get-Content "$($reportID).xml") -replace ' xmlns:rds="http://www.ibm.com/xmlns/prod/cognos/rds/types/201310"','' -replace 'rds:','' -replace '<','%3C' -replace '>','%3E' -replace '/','%2F'
+                $promptXML = [xml]((Get-Content "$($reportID).xml") -replace ' xmlns:rds="http://www.ibm.com/xmlns/prod/cognos/rds/types/201310"','' -replace 'rds:','')
+                $downloadURL = $downloadURL + '&xmlData=' + $reportParamXML
+            }
+
+            if ($promptXML) {
+                Write-Host "Info: You should be able to customize your prompts by changing any of the following fields and using the -reportparams parameter."
+                $promptXML.promptAnswers.promptValues | ForEach-Object {
+                    $promptname = $PSItem.name
+                    $PSItem.values.item.SimplePValue.useValue | ForEach-Object {
+                        Write-Host ("&p_$($promptname)=$($PSItem)").Trim() -NoNewline
+                    }
+                }
+                Write-Host "`n"
+            }
+
+        } catch {}
+
+        Write-Host -NoNewline "Downloading Report to ""$($fullfilepath)""... " -ForegroundColor Yellow
+        $response5 = Invoke-RestMethod -Uri $downloadURL -WebSession $session
+
+        if ($response5.receipt.status -eq "working") {
+            $response6 = Invoke-RestMethod -Uri "https://dev.adecognos.arkansas.gov/ibmcognos/bi/v1/disp/rds/sessionOutput/conversationID/$($response5.receipt.conversationID)?v=3&async=MANUAL" -WebSession $session
+
+            if (-Not($response6.error)) {
+                #we did not get a prompt page or an error.
+                $response6 | Out-File $fullfilepath
+            } else {
+                #we got an error or a prompts page.
+                $errorResponse = $response6.error
+                Write-Host "Error detected in downloaded file. $($errorResponse.message)" -ForegroundColor Red
+
+                if ($errorResponse.promptID) {
+                    $promptid = $errorResponse.promptID
+                    #Expecting prompts. Lets see if we can find them.
+                    $promptsConversation = Invoke-RestMethod -Uri "https://dev.adecognos.arkansas.gov/ibmcognos/bi/v1/disp/rds/reportPrompts/report/$($reportID)?v=3&async=MANUAL" -WebSession $session
+                    $prompts = Invoke-WebRequest -Uri "https://dev.adecognos.arkansas.gov/ibmcognos/bi/v1/disp/rds/sessionOutput/conversationID/$($promptsConversation.receipt.conversationID)?v=3&async=MANUAL" -WebSession $session
+                    Write-Host "`nError: This report expects the following prompts:" -ForegroundColor RED
+
+                    Select-Xml -Xml ([xml]$prompts.Content) -XPath '//x:pname' -Namespace @{ x = "http://www.ibm.com/xmlns/prod/cognos/layoutData/201310" } | ForEach-Object {
+                        
+                        $promptname = $PSItem.Node.'#text'
+                        Write-Host "p_$($promptname)="
+
+                        if (Select-Xml -Xml ([xml]$prompts.Content) -XPath '//x:p_value' -Namespace @{ x = "http://www.ibm.com/xmlns/prod/cognos/layoutData/200904" }) {
+                            $promptvalues = Select-Xml -Xml ([xml]$prompts.Content) -XPath '//x:p_value' -Namespace @{ x = "http://www.ibm.com/xmlns/prod/cognos/layoutData/200904" } | Where-Object { $PSItem.Node.pname -eq $promptname }
+                            if ($promptvalues.Node.selOptions.sval) {
+                                $promptvalues.Node.selOptions.sval
+                            }
+                        }
+
+                    }
+
+                    Write-Host "`nInfo: For complex prompts you can submit your prompts at the following URL. You must have a browser window open and signed into Cognos for this URL to work." -ForegroundColor Yellow
+                    Write-Host ("$($baseURL)" + ([uri]$errorResponse.url).PathAndQuery) + "`n"
+
+                    $promptAnswers = Read-Host "Ready to download the prompt answers to reuse for later (Y/N)"
+                        #Read-Host "Ready to download the prompt answers to reuse for later (Y/N)"
+
+                    if (@('y','Y','yes') -contains $promptAnswers) {
+                        Write-Host "Info: Saving Report Responses to $($reportID).xml to be used later." -ForegroundColor Yellow
+                        Invoke-WebRequest -Uri "https://dev.adecognos.arkansas.gov/ibmcognos/bi/v1/disp/rds/promptAnswers/conversationID/$($promptid)?v=3&async=OFF" -WebSession $session -OutFile "$($reportID).xml"
+                        Write-Host "Info: You will need to rerun this script to download the report using the saved prompts." -ForegroundColor Yellow
+
+                        $promptXML = [xml]((Get-Content "$($reportID).xml") -replace ' xmlns:rds="http://www.ibm.com/xmlns/prod/cognos/rds/types/201310"','' -replace 'rds:','')
+                        $promptXML.promptAnswers.promptValues | ForEach-Object {
+                            $promptname = $PSItem.name
+                            $PSItem.values.item.SimplePValue.useValue | ForEach-Object {
+                                Write-Host "&p_$($promptname)=$($PSItem)"
+                            }
+                        }
+                        
+                    }
+
+                }
+
+                #Move-Item -Path "$fullfilepath" -Destination "$($fullfilepath).error" -Force
+                Reset-DownloadedFile($fullfilepath)
+                exit(6)
+            }
         }
-
-        $response6 = Invoke-RestMethod -Uri $downloadURL -WebSession $session -OutFile $fullfilepath
-
+        
         Write-Host "Success." -ForegroundColor Yellow
     } catch {
-        Write-Host "Failed to download file." -ForegroundColor Red
+        $b = $_
+        Write-Host "Failed to download file. $($_)" -ForegroundColor Red
         exit(6)
     }
 } else {
@@ -356,54 +437,6 @@ if (-Not($SkipDownloadingFile)) {
     exit(0)
 }
 
-#Verify we didn't download an error page.
-try {
-    if (([xml](Get-Content $fullfilepath)).error.message) {
-
-        $errorMessage = [xml](Get-Content $fullfilepath)
-        Write-Host "Error detected in downloaded file. $($errorMessage.error.message)" -ForegroundColor Red
-
-        if ($errorMessage.error.promptID) {
-            $promptid = $errorMessage.error.promptID
-            #Expecting prompts. Lets see if we can find them.
-            $prompts = Invoke-WebRequest -Uri "https://dev.adecognos.arkansas.gov/ibmcognos/bi/v1/disp/rds/reportPrompts/report/$($reportID)?v=3" -WebSession $session
-
-            Write-Host "`nError: This report expects the following prompts:" -ForegroundColor RED
-
-            Select-Xml -Xml ([xml]$prompts.Content) -XPath '//x:pname' -Namespace @{ x = "http://www.ibm.com/xmlns/prod/cognos/layoutData/201310" } | ForEach-Object {
-                
-                $promptname = $PSItem.Node.'#text'
-                Write-Host "p_$($promptname)="
-
-                if (Select-Xml -Xml ([xml]$prompts.Content) -XPath '//x:p_value' -Namespace @{ x = "http://www.ibm.com/xmlns/prod/cognos/layoutData/200904" }) {
-                    $promptvalues = Select-Xml -Xml ([xml]$prompts.Content) -XPath '//x:p_value' -Namespace @{ x = "http://www.ibm.com/xmlns/prod/cognos/layoutData/200904" } | Where-Object { $PSItem.Node.pname -eq $promptname }
-                    if ($promptvalues.Node.selOptions.sval) {
-                        $promptvalues.Node.selOptions.sval
-                    }
-                }
-
-            }
-
-            Write-Host "`nInfo: For complex prompts you can submit your prompts at the following URL. You must have a browser window open and signed into Cognos for this URL to work." -ForegroundColor Yellow
-            Write-Host ("$($baseURL)" + ([uri]$errorMessage.error.url).PathAndQuery) + "`n"
-
-            $promptAnswers = Read-Host "Ready to download the prompt answers to reuse for later (Y/N)"
-
-            if (@('y','Y','yes') -contains $promptAnswers) {
-                Write-Host "Info: Saving Report Responses to $($reportID).xml to be used later." -ForegroundColor Yellow
-                Invoke-WebRequest -Uri "https://dev.adecognos.arkansas.gov/ibmcognos/bi/v1/disp/rds/promptAnswers/conversationID/$($promptid)?v=3" -WebSession $session -OutFile "$($reportID).xml"
-                Write-Host "Info: You will need to rerun this script to download the report using the saved prompts." -ForegroundColor Yellow
-            }
-
-        }
-
-        Move-Item -Path "$fullfilepath" -Destination "$($fullfilepath).error" -Force
-        Reset-DownloadedFile($fullfilepath)
-        exit(6)
-    }
-} catch {
-
-}
 
 # check file for proper format if csv
 if ($extension -eq "csv") {
